@@ -1,0 +1,153 @@
+---
+title: "Exercise quality prediction from accelerometers"
+author: "Francisco Rodriguez"
+date: "8 de noviembre de 2017"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Summary
+
+Using wearables devices it is now possible to collect a large amount of data about personal activity.
+
+The goal of this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did an exercise.
+
+
+## Loading the data
+
+Thee training data for this project are available here:  
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:  
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+
+The data for this project can be found [here](http://groupware.les.inf.puc-rio.br/har).
+
+```{r , echo=FALSE, results="hide", message = FALSE }
+library(ggplot2)
+library(data.table)
+library(knitr)
+library(caret)
+library(lattice)
+```
+
+```{r, cache=TRUE}
+setwd("C:/frodriguezp/DataScience/Rprojects");
+
+urltrain<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+urltest<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+fnametrain<-"./data/pml-training.csv"; 
+fnametest<-"./data/pml-testing.csv"; 
+
+if(!file.exists(fnametrain))    download.file(urltrain, destfile = fnametrain);
+if(!file.exists(fnametest))    download.file(urltest, destfile = fnametest);
+
+mdtrain<-fread(fnametrain)
+mdval<-fread(fnametest)
+```
+
+### Preprocess
+Data contains a lot of variables, but many of them contain missing values or *NA*. The first step will be to clean the data set in orther to include just the relevant parameters.  
+Also, the outcome is the *classe* variable. This variable is a factor with 5 levels *(A, B, C, D, E)*. Where each level corresponds to different ways of performing the exercise: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). To sum up, class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes.  
+Columns form 1 to 7 are also remived because they do not contain usefull information for predicting the outcome.
+
+```{r}
+mdtrain$classe<-factor(mdtrain$classe)
+
+ic<-(colSums(is.na(mdtrain))>0) | (sapply(mdtrain,class) %in% "character"); 
+ic[1:7]<-TRUE; ic<-which(ic)
+mdtrain<-mdtrain[,-ic,with=FALSE]
+```
+
+## Machine Learning
+
+### Cross Validation
+
+In order to have an idea of the accuracy of the model (out of sample error), the *tran* data will be splitted into two sets: trainig and testing. This method will allow us to create the model just with the training data set and then use the model to compare the predictions of the testing set with the truth values. 
+
+To have even a better estimation of the accuracy, a k-fold cross validation method will be used. In R, these options can be controled using the `trainControl` command. 
+
+```{r}
+set.seed(333)
+# Data Split
+iTrain = createDataPartition(mdtrain$classe, p = 0.67)[[1]]
+mdtest = mdtrain[-iTrain,]
+mdtrain = mdtrain[iTrain,]
+
+# Cross validation k-folds
+train_control <- trainControl(method="cv", number=7)
+
+```
+
+### Method
+As this is a classifications problem; where we have `r dim(mdtrain)[2]-1` predictor variables and we have to predict the outcome (5-level factor), a **boosting** algorith will be used. The trees have to be deep enought to consider all the predictr variables, this can be checked with the `grid command`
+
+```{r, cache=TRUE, message = FALSE}
+
+gbmGrid <-  expand.grid(interaction.depth = floor(sqrt(NCOL(mdtrain))), 
+                        n.trees = (1:3)*50, 
+                        shrinkage = 0.1,
+                        n.minobsinnode = 10)
+gbmmodel<-train(classe ~ ., data=mdtrain, method="gbm",
+              verbose=FALSE,
+              preProc = c("center", "scale"),
+              trControl=train_control,
+              tuneGrid = gbmGrid )
+gbmres<-gbmmodel$results[3,c(2,4,5,7)]; row.names(gbmres)<-NULL
+kable(gbmres)
+```
+
+The in-sample accuracy is `r gbmmodel$results[3,5]`, which is good enough.  
+The main predictor variables are shown in the following table.
+
+```{r, fig.show=FALSE}
+rivar<-head(summary(gbmmodel$finalModel),7); row.names(rivar)<-NULL
+names(rivar)<-c("variable", "relative_influence")
+kable(rivar)
+```
+
+
+### Results
+One of the bests ways to obtain the out-sample error is the *Confussion Matrix*, this command will compare the truth values of the test set (that have not been used for the model) with the predictions. 
+
+```{r}
+cm<-confusionMatrix(mdtest$classe, predict(gbmmodel,mdtest)); cm
+```
+
+The test accuracy is `r  cm$overall[1]`, so we can conclude that the model estimates the *quality* of the exercise really well. 
+
+To have an idea of the model, the following plot show a sccated plot with the two main predictors colored by the outcome.
+
+```{r, fig.height=4}
+ggplot(mdtrain, aes(x=roll_belt, y=pitch_forearm, colour=classe)) +
+    geom_point() +
+    theme_minimal()
+```
+
+The plot shows that the different classes are classified in different *clusters*.
+
+## Prediction
+
+Finally, the model will be used to predict the *quality* of the exercise to the given test data, where the outcome variable is unknown.
+
+```{r}
+kable(data.frame(id=mdval$problem_id, name=mdval$user_name, classe=predict(gbmmodel,mdval)))
+```
+
+## Conclusion
+
+From a data set with `r ncol(mdtrain)-1` predictor variables (from accelerometers on the belt, forearm, arm, and dumbell) it has been possible to train a model to predict the manner in which a subject was peforming an exercise.
+
+The model has obteined really good out-sample errors, the error matrix from the test data set can be seen in the following table.
+
+```{r}
+kable(cm$table)
+```
+
+Where the test data set has been obtained splitting the original training set. 
+
+
+
