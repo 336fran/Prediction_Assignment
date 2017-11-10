@@ -1,7 +1,4 @@
 # Readme
+ You can previeu the html document here:  
+ <https://htmlpreview.github.io/?https://github.com/336fran/Prediction_Assignment/blob/master/84ML.html>
 
-You can alse read the document here:
-<http://rpubs.com/fran336/328538>
-
-Or paste the html path here:  
-https://htmlpreview.github.io/
